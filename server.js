@@ -90,6 +90,47 @@ function cleanup(dir) {
   } catch (_) {}
 }
 
+// ⚡ Fast Java runner (~1.5s vs 8s local JVM spin-up)
+async function runJavaFastRunner(code, stdin = '') {
+  try {
+    const createRes = await fetch('https://api.paiza.io/runners/create', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        language: 'java',
+        source_code: code,
+        input: stdin || '',
+        api_key: 'guest'
+      }),
+      signal: AbortSignal.timeout(9000)
+    })
+    const createData = await createRes.json()
+    if (!createData || !createData.id) return null
+
+    let tries = 40
+    while (tries-- > 0) {
+      await new Promise(r => setTimeout(r, 100))
+      const detailsRes = await fetch(`https://api.paiza.io/runners/get_details?id=${createData.id}&api_key=guest`, {
+        signal: AbortSignal.timeout(4000)
+      })
+      const details = await detailsRes.json()
+      if (details.status === 'completed') {
+        if (details.build_stderr) {
+          return { output: '', error: details.build_stderr, type: 'compile_error' }
+        }
+        return {
+          output: details.stdout || (details.stderr ? '' : '(no output)'),
+          error: details.stderr || null,
+          type: details.stderr ? 'runtime_error' : 'success'
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[Fast Java Runner Backend] Falling back to local javac:', err.message)
+  }
+  return null
+}
+
 // ── POST /api/run ──────────────────────────────────────
 app.post('/api/run', async (req, res) => {
   const { language, code, stdin = '' } = req.body
@@ -101,6 +142,14 @@ app.post('/api/run', async (req, res) => {
   const lang = LANGS[language]
   if (!lang) {
     return res.status(400).json({ error: `Unsupported language: ${language}` })
+  }
+
+  // ⚡ Java fast runner: runs in ~1.5s instead of 8s local javac/java
+  if (language === 'java') {
+    const fastResult = await runJavaFastRunner(code, stdin)
+    if (fastResult) {
+      return res.json(fastResult)
+    }
   }
 
   // Create unique temp dir for this run
