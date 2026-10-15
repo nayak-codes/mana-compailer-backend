@@ -27,13 +27,13 @@ const LANGS = {
   nodejs: {
     ext:     'js',
     compile: null,
-    run:     (f) => `node "${f}"`,
+    run:     (f) => `node --max-old-space-size=128 "${f}"`,
   },
   java: {
     ext:     'java',
     // Java filename must match class name — we use Main
     compile: (f, dir) => `javac "${f}"`,
-    run:     (f, dir) => `java -cp "${dir}" Main`,
+    run:     (f, dir) => `java -Xmx192m -cp "${dir}" Main`,
     filename: 'Main.java',
   },
   c: {
@@ -51,11 +51,6 @@ const LANGS = {
     compile: null,
     run:     (f) => `go run "${f}"`,
   },
-  rust: {
-    ext:     'rs',
-    compile: (f, dir) => `rustc "${f}" -o "${path.join(dir, 'prog')}"`,
-    run:     (f, dir) => `"${path.join(dir, 'prog')}"`,
-  },
   php: {
     ext:     'php',
     compile: null,
@@ -71,7 +66,7 @@ const LANGS = {
 // ── Helper: run shell command with timeout + stdin ─────
 function runCmd(cmd, stdin = '', timeoutMs = 10000) {
   return new Promise((resolve) => {
-    const proc = exec(cmd, { timeout: timeoutMs }, (err, stdout, stderr) => {
+    const proc = exec(cmd, { timeout: timeoutMs, maxBuffer: 5 * 1024 * 1024 }, (err, stdout, stderr) => {
       if (err && err.killed) {
         resolve({ stdout: '', stderr: '', error: 'Time Limit Exceeded (10s)' })
       } else {
